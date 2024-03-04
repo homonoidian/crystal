@@ -1151,6 +1151,74 @@ describe Crystal::Formatter do
   assert_format "foo[] =1", "foo[] = 1"
   assert_format "foo[ 1 , 2 ]   =3", "foo[1, 2] = 3"
 
+  assert_format "foo[1, 2, &.x]"
+  assert_format "foo[1, 2, &.[100]]"
+  assert_format "foo[1, 2, &.x]"
+  assert_format "foo[1, 2, &x]"
+  assert_format "foo[1, 2] { }"
+  assert_format "foo[1, 2] { 100 }"
+  assert_format "foo[1, 2] { |x| x.bar }", "foo[1, 2] { |x| x.bar }"
+  assert_format "foo[1, 2] do 100 end", "foo[1, 2] do\n  100\nend"
+  assert_format "foo[1, 2] do\n100\nend", "foo[1, 2] do\n  100\nend"
+  assert_format "foo[1, 2] do |x|\nx\nend", "foo[1, 2] do |x|\n  x\nend"
+
+  assert_format "foo[1, &x]"
+  assert_format "foo[1, &.[100]?]"
+  assert_format "foo[1] { |x| x }"
+  assert_format "foo[1] do |x|\nx\nend", "foo[1] do |x|\n  x\nend"
+
+  assert_format "foo[1, &.x]?"
+  assert_format "foo[1, &.[100]]?"
+  assert_format "foo[1, &.[100]?]?"
+  assert_format "foo[1, &.as(UInt32)]?"
+  assert_format "foo[1]? do\n100\nend", "foo[1]? do\n  100\nend"
+  assert_format "foo[1]? do |x|\n100\nend", "foo[1]? do |x|\n  100\nend"
+  assert_format "foo[1, 2]? do\n100\nend", "foo[1, 2]? do\n  100\nend"
+
+  assert_format "foo[] { }"
+  assert_format "foo[] { |x| x.bar }"
+  assert_format "foo[] do |x|\nx.bar\nend", "foo[] do |x|\n  x.bar\nend"
+  assert_format "foo[] do end", "foo[] do\nend"
+  assert_format "foo[] do\nend"
+  assert_format "foo[] do |x|\nx\nend", "foo[] do |x|\n  x\nend"
+  assert_format "foo[] do\n100\nend", "foo[] do\n  100\nend"
+
+  assert_format "foo[&x]"
+  assert_format "foo[&.x]"
+  assert_format "foo[&.foo(123)]"
+  assert_format "foo[\n&.foo(123)\n]", "foo[&.foo(123)]"
+  assert_format "foo[1,\n&.foo(123)\n]", "foo[1,\n  &.foo(123)\n]"
+  assert_format "foo[\n&.a(\"xyz\")\n]", "foo[&.a(\"xyz\")]"
+
+  assert_format "foo[1,\n  &.bar]"
+  assert_format "foo[1, # foo\n  &.bar]"
+  assert_format "foo[\n  1, 2, &.x]"
+  assert_format "foo[\n1,\n 2,  \n &.x\n]", "foo[\n  1,\n  2,\n  &.x\n]"
+  assert_format "foo[\n1,\n\n 2,  \n&.x(123)]", "foo[\n  1,\n\n  2,\n  &.x(123)]"
+  assert_format "foo[\n  1,\n  # 2,\n  3,\n&block]", "foo[\n  1,\n  # 2,\n  3,\n  &block]"
+  assert_format "foo[\n  1,\n  # 2,\n  3,\n&block\n]", "foo[\n  1,\n  # 2,\n  3,\n  &block\n]"
+  assert_format "foo[\n  1,\n  # 2,\n  # 3,\n&.foo]", "foo[\n  1,\n  # 2,\n  # 3,\n  &.foo]"
+  assert_format "foo[\n  1,\n  # 2,\n  # 3,\n&.foo\n]", "foo[\n  1,\n  # 2,\n  # 3,\n  &.foo\n]"
+
+  assert_format "foo[\nbar[1, 2],\nbaz[3, 4],\nboo[5, 6, &.x],\n&.y(100)\n]", "foo[\n  bar[1, 2],\n  baz[3, 4],\n  boo[5, 6, &.x],\n  &.y(100)\n]"
+  assert_format <<-CRYSTAL
+    foo[
+      bar[
+        baz[
+          # Comment
+          &.x
+        ],
+        y,
+      ] { |n| n + 1 },
+      # Comment
+      123,
+      &.boom
+    ]
+    CRYSTAL
+
+  assert_format "x = foo[\n  &.bar\n]"
+  assert_format "x = foo[\n  1,\n  2,\n  &.bar\n]"
+
   assert_format "1  ||  2", "1 || 2"
   assert_format "a  ||  b", "a || b"
   assert_format "1  &&  2", "1 && 2"

@@ -2575,6 +2575,7 @@ module Crystal
           # It's an operator
           if @token.type.op_lsquare?
             write "["
+            ends_with_newline = @token.type.newline?
             next_token_skip_space
 
             args = node.args
@@ -2583,30 +2584,59 @@ module Crystal
               last_arg = args.pop
             end
 
-            has_newlines, found_comment, _ = format_args args, true, node.named_args
+            has_args = !node.args.empty? || node.named_args
+            has_newlines, found_comment, _ = format_args args, true, node.named_args, block_arg: node.block_arg
             if @token.type.op_comma? || @token.type.newline?
-              if has_newlines
-                write ","
-                found_comment = next_token_skip_space
-                write_line unless found_comment
-                write_indent
-                skip_space_or_newline
-              else
-                next_token_skip_space_or_newline
+              unless node.block && has_args
+                if has_newlines
+                  write "," unless node.block_arg
+                  found_comment = next_token_skip_space
+                  write_line unless found_comment
+                  write_indent
+                  skip_space_or_newline
+                else
+                  next_token_skip_space_or_newline
+                end
               end
             else
               found_comment = skip_space_or_newline
               write_indent if found_comment
             end
-            write_token :OP_RSQUARE
 
-            if node.name == "[]?"
-              skip_space
-
-              # This might not be present in the case of `x[y] ||= z`
-              if @token.type.op_question?
+            write_rsquare = true
+            if block = node.block
+              write_rsquare, ends_with_newline = format_call_block(block,
+                close_token_kind: Token::Kind::OP_RSQUARE,
+                has_parentheses: true,
+                base_indent: base_indent,
+                has_args: has_args,
+                ends_with_newline: ends_with_newline,
+                found_comment: found_comment
+              ) do
+                next unless node.name == "[]?"
+                skip_space
+                next unless @token.type.op_question?
                 write "?"
                 next_token
+              end
+            end
+
+            if write_rsquare
+              if ends_with_newline
+                write_line unless @wrote_newline
+                write_indent(column)
+              end
+
+              write_token :OP_RSQUARE
+
+              if node.name == "[]?"
+                skip_space
+
+                # This might not be present in the case of `x[y] ||= z`
+                if @token.type.op_question?
+                  write "?"
+                  next_token
+                end
               end
             end
 
@@ -2622,6 +2652,11 @@ module Crystal
           elsif @token.type.op_lsquare_rsquare?
             write "[]"
             next_token
+            skip_space
+
+            if (block = node.block) && (@token.keyword?(:do) || @token.type.op_lcurly?)
+              format_block block, needs_space: false
+            end
 
             if node.name == "[]="
               skip_space_or_newline
@@ -2803,43 +2838,10 @@ module Crystal
       end
 
       if block = node.block
-        needs_space = !has_parentheses || has_args
-        block_indent = base_indent
-        skip_space
-        if has_parentheses && @token.type.op_comma?
-          next_token
-          wrote_newline = skip_space(block_indent, write_comma: true)
-          if wrote_newline || @token.type.newline?
-            unless wrote_newline
-              next_token_skip_space_or_newline
-              write ","
-              write_line
-            end
-            needs_space = false
-            block_indent += 2 if !@token.type.op_rparen? # foo(1, ↵  &.foo) case
-            write_indent(block_indent)
-          else
-            write "," if !@token.type.op_rparen? # foo(1, &.foo) case
-          end
-        end
-        if has_parentheses && @token.type.op_rparen?
-          if ends_with_newline
-            write_line unless found_comment || @wrote_newline
-            write_indent
-          end
-          write ")"
-          next_token_skip_space_or_newline
-          indent(block_indent) { format_block block, needs_space }
-          return false
-        end
-        indent(block_indent) { format_block block, needs_space }
-        if has_parentheses
-          skip_space
-          if @token.type.newline?
-            ends_with_newline = true
-          end
-          skip_space_or_newline
-        end
+        continue, ends_with_newline = format_call_block(
+          block, Token::Kind::OP_RPAREN, has_parentheses, base_indent, has_args, ends_with_newline, found_comment
+        ) { }
+        return false unless continue
       end
 
       if has_args || node.block_arg
@@ -2850,6 +2852,53 @@ module Crystal
       end
 
       false
+    end
+
+    def format_call_block(node : ASTNode, close_token_kind, has_parentheses, base_indent, has_args, ends_with_newline, found_comment, &)
+      needs_space = !has_parentheses || has_args
+      block_indent = base_indent
+      skip_space
+
+      if has_parentheses && @token.type.op_comma?
+        next_token
+        wrote_newline = skip_space(block_indent, write_comma: true)
+        if wrote_newline || @token.type.newline?
+          unless wrote_newline
+            next_token_skip_space_or_newline
+            write ","
+            write_line
+          end
+          needs_space = false
+          block_indent += 2 unless @token.type == close_token_kind # foo(1, ↵  &.foo) case
+          write_indent(block_indent)
+        else
+          write "," unless @token.type == close_token_kind # foo(1, &.foo) case
+        end
+      end
+
+      if has_parentheses && @token.type == close_token_kind
+        if ends_with_newline
+          write_line unless found_comment || @wrote_newline
+          write_indent
+        end
+        write_token close_token_kind
+        yield
+        next_token_skip_space_or_newline
+        indent(block_indent) { format_block node, needs_space }
+        return false, ends_with_newline
+      end
+
+      indent(block_indent) { format_block node, needs_space }
+
+      if has_parentheses
+        skip_space
+        if @token.type.newline?
+          ends_with_newline = true
+        end
+        skip_space_or_newline
+      end
+
+      {true, ends_with_newline}
     end
 
     def format_call_args(node : ASTNode, has_parentheses, base_indent)
